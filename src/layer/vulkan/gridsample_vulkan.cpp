@@ -29,6 +29,7 @@
 #include "gridsample_vulkan.h"
 
 #include "layer_shader_type.h"
+#include "layer_type.h"
 
 namespace ncnn {
 
@@ -44,6 +45,13 @@ GridSample_vulkan::GridSample_vulkan()
 
 int GridSample_vulkan::create_pipeline(const Option& opt)
 {
+    // prepare for convert grid tensor to pack1
+    packing_g = create_layer(LayerType::Packing);
+    ParamDict pd;
+    pd.set(0, 1);
+    packing_g->load_param(pd);
+    packing_g->create_pipeline(opt);
+
     const Mat& shape = bottom_shapes.empty() ? Mat() : bottom_shapes[0];
     const Mat& out_shape = top_shapes.empty() ? Mat() : top_shapes[0];
 
@@ -81,6 +89,34 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
     Mat out_shape_packed;
     if (out_shape.dims == 3) out_shape_packed = Mat(out_shape.w, out_shape.h, out_shape.c / out_elempack, (void*)0, out_elemsize, out_elempack);
     if (out_shape.dims == 4) out_shape_packed = Mat(out_shape.w, out_shape.h, out_shape.d, out_shape.c / out_elempack, (void*)0, out_elemsize, out_elempack);
+
+    {
+        const Mat& grid_shape = bottom_shapes.size() >= 2 ? bottom_shapes[1] : mat();
+        Mat local_size_xyz;
+        if (out_shape_packed.dims == 3)
+        {
+            local_size_xyz.w = std::min(4, out_shape_packed.w);
+            local_size_xyz.h = std::min(4, out_shape_packed.h);
+            local_size_xyz.c = std::min(4, out_shape_packed.c);
+        }
+        if (out_shape_packed.dims == 4)
+        {
+            local_size_xyz.w = std::min(4, out_shape_packed.w);
+            local_size_xyz.h = std::min(4, out_shape_packed.h * out_shape_packed.d);
+            local_size_xyz.c = std::min(4, out_shape_packed.c);
+        }
+
+        std::vector<vk_specialization_type> specializations(3 + 6);
+        specializations[0].i = sample_type;
+        specializations[1].i = padding_mode;
+        specializations[2].i = align_corner;
+        specializations[3 + 0].i = shape_packed.dims;
+        specializations[3 + 1].i = shape_packed.w;
+        specializations[3 + 2].i = shape_packed.h;
+        specializations[3 + 3].i = shape_packed.d;
+        specializations[3 + 4].i = shape_packed.c;
+        specializations[3 + 5].i = shape_packed.cstep;
+    }
 
     std::vector<vk_specialization_type> specializations(3 + 11);
     specializations[0].i = sample_type;
@@ -140,7 +176,7 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
     return 0;
 }
 
-int GridSample_vulkan::destroy_pipeline(const Option& /*opt*/)
+int GridSample_vulkan::destroy_pipeline(const Option& opt)
 {
     delete pipeline_gridsample;
     pipeline_gridsample = 0;
@@ -150,6 +186,9 @@ int GridSample_vulkan::destroy_pipeline(const Option& /*opt*/)
 
     delete pipeline_gridsample_pack8;
     pipeline_gridsample_pack8 = 0;
+    
+    packing_g->destroy_pipeline(opt);
+    delete packing_g;
 
     return 0;
 }
@@ -158,12 +197,21 @@ int GridSample_vulkan::forward(const std::vector<VkMat>& bottom_blobs, std::vect
 {
     int elempack = bottom_blobs[0].elempack;
 
+    ncnn::VkMat grid_tmp;
+
+    if (bottom_blobs[1].elempack != 1)
+    {
+        packing_g->forward(bottom_blobs[1], grid_tmp, cmd, opt);
+    }
+
+    ncnn::VkMat grid_p1 = (bottom_blobs[1].elempack == 1) ? bottom_blobs[1] : grid_tmp;
+
     std::vector<VkMat> bindings(2);
     bindings[0] = bottom_blobs[0];
-    bindings[1] = top_blobs[0];
+    bindings[1] = grid_p1;
     bindings[2] = bottom_blobs[1];
 
-    std::vector<vk_constant_type> constants(5);
+    std::vector<vk_constant_type> constants(12);
     constants[0].i = bottom_blobs[0].dims;
     constants[1].i = bottom_blobs[0].w;
     constants[2].i = bottom_blobs[0].h;
@@ -190,12 +238,21 @@ int GridSample_vulkan::forward(const std::vector<VkImageMat>& bottom_blobs, std:
 {
     int elempack = bottom_blobs[0].elempack;
 
+    ncnn::VkImageMat grid_tmp;
+
+    if (bottom_blobs[1].elempack != 1)
+    {
+        packing_g->forward(bottom_blobs[1], grid_tmp, cmd, opt);
+    }
+
+    ncnn::VkImageMat grid_p1 = (bottom_blobs[1].elempack == 1) ? bottom_blobs[1] : grid_tmp;
+
     std::vector<VkImageMat> bindings(3);
     bindings[0] = bottom_blobs[0];
-    bindings[1] = top_blobs[0];
+    bindings[1] = grid_p1;
     bindings[2] = bottom_blobs[1];
 
-    std::vector<vk_constant_type> constants(5);
+    std::vector<vk_constant_type> constants(12);
     constants[0].i = bottom_blobs[0].dims;
     constants[1].i = bottom_blobs[0].w;
     constants[2].i = bottom_blobs[0].h;
