@@ -186,7 +186,7 @@ int GridSample_vulkan::destroy_pipeline(const Option& opt)
 
     delete pipeline_gridsample_pack8;
     pipeline_gridsample_pack8 = 0;
-    
+
     packing_g->destroy_pipeline(opt);
     delete packing_g;
 
