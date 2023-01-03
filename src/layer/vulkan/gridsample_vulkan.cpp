@@ -66,13 +66,11 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
     int elempack = 1;
     if (shape.dims == 1 || shape.dims == 2)
         return -100;
-    if (shape.dims == 3 || shape.dims == 4) elempack = opt.use_shader_pack8 && shape.c % 8 == 0 ? 8 : shape.c % 4 == 0 ? 4
-                                                                                                                       : 1;
+    if (shape.dims == 3 || shape.dims == 4) elempack = opt.use_shader_pack8 && shape.c % 8 == 0 ? 8 : shape.c % 4 == 0 ? 4 : 1;
     int out_elempack = 1;
     if (out_shape.dims == 1 || out_shape.dims == 2)
         return -100;
-    if (out_shape.dims == 3 || out_shape.dims == 4) out_elempack = opt.use_shader_pack8 && out_shape.c % 8 == 0 ? 8 : out_shape.c % 4 == 0 ? 4
-                                                                                                                                           : 1;
+    if (out_shape.dims == 3 || out_shape.dims == 4) out_elempack = opt.use_shader_pack8 && out_shape.c % 8 == 0 ? 8 : out_shape.c % 4 == 0 ? 4 : 1;
 
     size_t elemsize;
     size_t out_elemsize;
@@ -201,7 +199,7 @@ int GridSample_vulkan::destroy_pipeline(const Option& opt)
 
     delete pipeline_gridsample_pack8;
     pipeline_gridsample_pack8 = 0;
-    
+
     delete pipeline_gridsample_compute_coord;
     pipeline_gridsample_compute_coord = 0;
 
@@ -279,7 +277,6 @@ int GridSample_vulkan::forward(const std::vector<VkMat>& bottom_blobs, std::vect
 
     return 0;
 }
-
 
 int GridSample_vulkan::forward(const std::vector<VkImageMat>& bottom_blobs, std::vector<VkImageMat>& top_blobs, VkCompute& cmd, const Option& opt) const
 {
