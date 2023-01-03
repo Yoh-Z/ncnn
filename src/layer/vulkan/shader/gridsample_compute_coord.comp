@@ -66,7 +66,18 @@ void main()
     afp v = buffer_ld1(bottom_top_blob_data, gi);
 #endif
 
-    v = v > afp(0.0f) ? v : afp(alpha * (exp(v) - 1.0f));
+    if(gz == 1)
+    {
+    
+    }
+    else if(gz == 2)
+    {
+    
+    }
+    else
+    {
+    
+    }
 
 #if NCNN_image_shader
     image3d_st1(top_blob_3d, ivec3(gx, gy, gz), v);

@@ -39,7 +39,7 @@ public:
     Pipeline* pipeline_gridsample_pack8;
 
     Pipeline* pipeline_gridsample_compute_coord;
-    Layer* packing_g;
+    Layer* permute_g;
 };
 
 } // namespace ncnn

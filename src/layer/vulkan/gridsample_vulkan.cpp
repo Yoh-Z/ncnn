@@ -41,28 +41,38 @@ GridSample_vulkan::GridSample_vulkan()
     pipeline_gridsample = 0;
     pipeline_gridsample_pack4 = 0;
     pipeline_gridsample_pack8 = 0;
+    pipeline_gridsample_compute_coord = 0;
+    permute_g = 0;
 }
 
 int GridSample_vulkan::create_pipeline(const Option& opt)
 {
-    // prepare for convert grid tensor to pack1
-    packing_g = create_layer(LayerType::Packing);
-    ParamDict pd;
-    pd.set(0, 1);
-    packing_g->load_param(pd);
-    packing_g->create_pipeline(opt);
-
     const Mat& shape = bottom_shapes.empty() ? Mat() : bottom_shapes[0];
     const Mat& out_shape = top_shapes.empty() ? Mat() : top_shapes[0];
+
+    // prepare for grid tensor permute layer
+    if (shape.dims != 0)
+    {
+        permute_g = create_layer(LayerType::Permute);
+        ParamDict pd;
+        if (shape.dims == 3)
+            pd.set(0, 4);
+        else if (shape.dims == 4)
+            pd.set(0, 18);
+        permute_g->load_param(pd);
+        permute_g->create_pipeline(opt);
+    }
 
     int elempack = 1;
     if (shape.dims == 1 || shape.dims == 2)
         return -100;
-    if (shape.dims == 3 || shape.dims == 4) elempack = opt.use_shader_pack8 && shape.c % 8 == 0 ? 8 : shape.c % 4 == 0 ? 4 : 1;
+    if (shape.dims == 3 || shape.dims == 4) elempack = opt.use_shader_pack8 && shape.c % 8 == 0 ? 8 : shape.c % 4 == 0 ? 4
+                                                                                                                       : 1;
     int out_elempack = 1;
     if (out_shape.dims == 1 || out_shape.dims == 2)
         return -100;
-    if (out_shape.dims == 3 || out_shape.dims == 4) out_elempack = opt.use_shader_pack8 && out_shape.c % 8 == 0 ? 8 : out_shape.c % 4 == 0 ? 4 : 1;
+    if (out_shape.dims == 3 || out_shape.dims == 4) out_elempack = opt.use_shader_pack8 && out_shape.c % 8 == 0 ? 8 : out_shape.c % 4 == 0 ? 4
+                                                                                                                                           : 1;
 
     size_t elemsize;
     size_t out_elemsize;
@@ -90,20 +100,21 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
     if (out_shape.dims == 3) out_shape_packed = Mat(out_shape.w, out_shape.h, out_shape.c / out_elempack, (void*)0, out_elemsize, out_elempack);
     if (out_shape.dims == 4) out_shape_packed = Mat(out_shape.w, out_shape.h, out_shape.d, out_shape.c / out_elempack, (void*)0, out_elemsize, out_elempack);
 
+    // create coord computing pipeline
     {
-        const Mat& grid_shape = bottom_shapes.size() >= 2 ? bottom_shapes[1] : mat();
+        const Mat& grid_shape = bottom_shapes.size() >= 2 ? bottom_shapes[1] : Mat();
         Mat local_size_xyz;
-        if (out_shape_packed.dims == 3)
+        if (grid_shape.dims == 3)
         {
-            local_size_xyz.w = std::min(4, out_shape_packed.w);
-            local_size_xyz.h = std::min(4, out_shape_packed.h);
-            local_size_xyz.c = std::min(4, out_shape_packed.c);
+            local_size_xyz.w = std::min(4, grid_shape.w);
+            local_size_xyz.h = std::min(4, grid_shape.h);
+            local_size_xyz.c = std::min(4, grid_shape.c);
         }
-        if (out_shape_packed.dims == 4)
+        if (grid_shape.dims == 4)
         {
-            local_size_xyz.w = std::min(4, out_shape_packed.w);
-            local_size_xyz.h = std::min(4, out_shape_packed.h * out_shape_packed.d);
-            local_size_xyz.c = std::min(4, out_shape_packed.c);
+            local_size_xyz.w = std::min(4, grid_shape.w);
+            local_size_xyz.h = std::min(4, grid_shape.h * grid_shape.d);
+            local_size_xyz.c = std::min(4, grid_shape.c);
         }
 
         std::vector<vk_specialization_type> specializations(3 + 6);
@@ -116,6 +127,10 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
         specializations[3 + 3].i = shape_packed.d;
         specializations[3 + 4].i = shape_packed.c;
         specializations[3 + 5].i = shape_packed.cstep;
+
+        pipeline_gridsample_compute_coord = new Pipeline(vkdev);
+        pipeline_gridsample_compute_coord->set_optimal_local_size_xyz(local_size_xyz);
+        pipeline_gridsample_compute_coord->create(LayerShaderType::gridsample_compute_coord, opt, specializations);
     }
 
     std::vector<vk_specialization_type> specializations(3 + 11);
@@ -186,9 +201,12 @@ int GridSample_vulkan::destroy_pipeline(const Option& opt)
 
     delete pipeline_gridsample_pack8;
     pipeline_gridsample_pack8 = 0;
+    
+    delete pipeline_gridsample_compute_coord;
+    pipeline_gridsample_compute_coord = 0;
 
-    packing_g->destroy_pipeline(opt);
-    delete packing_g;
+    permute_g->destroy_pipeline(opt);
+    delete permute_g;
 
     return 0;
 }
@@ -197,18 +215,46 @@ int GridSample_vulkan::forward(const std::vector<VkMat>& bottom_blobs, std::vect
 {
     int elempack = bottom_blobs[0].elempack;
 
-    ncnn::VkMat grid_tmp;
+    ncnn::VkMat grid;
 
-    if (bottom_blobs[1].elempack != 1)
+    // chw2whc(whc => hcw) or cwhd2whdc(whdc => hdcw)
+    if (permute_g != 0)
     {
-        packing_g->forward(bottom_blobs[1], grid_tmp, cmd, opt);
+        permute_g->forward(bottom_blobs[1], grid, cmd, opt);
+    }
+    else
+    {
+        Layer* permute_rt = create_layer(LayerType::Permute);
+        ParamDict pd;
+        if (bottom_blobs[0].dims == 3)
+            pd.set(0, 4);
+        else if (bottom_blobs[0].dims == 4)
+            pd.set(0, 18);
+        permute_rt->load_param(pd);
+        permute_rt->create_pipeline(opt);
+        permute_rt->forward(bottom_blobs[1], grid, cmd, opt);
     }
 
-    ncnn::VkMat grid_p1 = (bottom_blobs[1].elempack == 1) ? bottom_blobs[1] : grid_tmp;
+    //get coord
+    {
+        std::vector<VkMat> bindings(1);
+        bindings[0] = grid;
+
+        std::vector<vk_constant_type> constants(5);
+        constants[0].i = grid.dims;
+        constants[1].i = grid.w;
+        constants[2].i = grid.h * grid.d;
+        constants[3].i = grid.c;
+        constants[4].i = grid.cstep;
+
+        const Pipeline* pipeline = pipeline_gridsample_compute_coord;
+
+        cmd.record_pipeline(pipeline, bindings, constants, grid);
+    }
 
     std::vector<VkMat> bindings(2);
     bindings[0] = bottom_blobs[0];
-    bindings[1] = grid_p1;
+    bindings[1] = grid;
     bindings[2] = bottom_blobs[1];
 
     std::vector<vk_constant_type> constants(12);
@@ -234,22 +280,43 @@ int GridSample_vulkan::forward(const std::vector<VkMat>& bottom_blobs, std::vect
     return 0;
 }
 
+
 int GridSample_vulkan::forward(const std::vector<VkImageMat>& bottom_blobs, std::vector<VkImageMat>& top_blobs, VkCompute& cmd, const Option& opt) const
 {
     int elempack = bottom_blobs[0].elempack;
 
-    ncnn::VkImageMat grid_tmp;
+    ncnn::VkImageMat grid;
 
+    // convert pack to 1
     if (bottom_blobs[1].elempack != 1)
     {
-        packing_g->forward(bottom_blobs[1], grid_tmp, cmd, opt);
+        permute_g->forward(bottom_blobs[1], grid, cmd, opt);
+    }
+    else
+    {
+        grid.create_like(bottom_blobs[1], opt.blob_vkallocator);
     }
 
-    ncnn::VkImageMat grid_p1 = (bottom_blobs[1].elempack == 1) ? bottom_blobs[1] : grid_tmp;
+    //get coord
+    {
+        std::vector<VkImageMat> bindings(1);
+        bindings[0] = grid;
+
+        std::vector<vk_constant_type> constants(5);
+        constants[0].i = grid.dims;
+        constants[1].i = grid.w;
+        constants[2].i = grid.h * grid.d;
+        constants[3].i = grid.c;
+        constants[4].i = 0; //grid_blob cstep
+
+        const Pipeline* pipeline = pipeline_gridsample_compute_coord;
+
+        cmd.record_pipeline(pipeline, bindings, constants, grid);
+    }
 
     std::vector<VkImageMat> bindings(3);
     bindings[0] = bottom_blobs[0];
-    bindings[1] = grid_p1;
+    bindings[1] = grid;
     bindings[2] = bottom_blobs[1];
 
     std::vector<vk_constant_type> constants(12);
