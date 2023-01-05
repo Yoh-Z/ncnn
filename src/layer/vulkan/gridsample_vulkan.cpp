@@ -115,8 +115,7 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
             local_size_xyz.c = std::min(4, grid_shape.c);
         }
 
-        LayerType::LayerType Layer_compute_offset = sample_type == 1 ? gridsample_bilinear_compute_offset : sample_type == 2 ? gridsample_nearest_compute_offset
-                                                                                                                             : gridsample_bicubic_compute_offset;
+        LayerType::LayerType Layer_compute_offset = sample_type == 1 ? gridsample_bilinear_compute_offset : sample_type == 2 ? gridsample_nearest_compute_offset : gridsample_bicubic_compute_offset;
 
         std::vector<vk_specialization_type> specializations(2 + 12);
         specializations[0].i = padding_mode;
