@@ -21,11 +21,10 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_float16: require
 #endif
 
-layout (constant_id = 0) const float sample_type  = 0; 
 layout (constant_id = 1) const float padding_mode = 0;
 layout (constant_id = 2) const float align_corner = 0;
 
-#define shape_constant_id_offset 3
+#define shape_constant_id_offset 2
 layout (constant_id = shape_constant_id_offset + 0) const int dims = 0;
 layout (constant_id = shape_constant_id_offset + 1) const int w = 0;
 layout (constant_id = shape_constant_id_offset + 2) const int h = 0;
@@ -33,6 +32,13 @@ layout (constant_id = shape_constant_id_offset + 3) const int d = 0;
 layout (constant_id = shape_constant_id_offset + 4) const int c = 0;
 layout (constant_id = shape_constant_id_offset + 5) const int cstep = 0;
 
+layout (constant_id = shape_constant_id_offset + 6)  const int griddims = 0;
+layout (constant_id = shape_constant_id_offset + 7)  const int gridw = 0;
+layout (constant_id = shape_constant_id_offset + 8)  const int gridh = 0;
+layout (constant_id = shape_constant_id_offset + 9)  const int gridd = 0;
+layout (constant_id = shape_constant_id_offset + 10) const int gridc = 0;
+layout (constant_id = shape_constant_id_offset + 11) const int gridcstep = 0;
+                                                               
 #if NCNN_image_shader
 layout (binding = 0) uniform unfp sampler3D bottom_blob_3d;
 layout (binding = 1, imfmtc1) writeonly uniform unfp image3D top_blob_3d;
@@ -45,8 +51,16 @@ layout (push_constant) uniform parameter
     int dims;
     int w;
     int h;
+    int d;
     int c;
     int cstep;
+
+    int griddims = 0;
+    int gridw = 0;
+    int gridh = 0;
+    int gridd = 0;
+    int gridc = 0;
+    int gridcstep = 0;
 } p;
 
 void main()
@@ -55,28 +69,30 @@ void main()
     int gy = int(gl_GlobalInvocationID.y);
     int gz = int(gl_GlobalInvocationID.z);
 
-    if (gx >= psc(w) || gy >= psc(h) * psc(d) || gz >= psc(c))
+    if (gx >= psc(gridw) || gy >= psc(gridh) * psc(gridd) || gz >= psc(gridc))
         return;
 
 #if NCNN_image_shader
     afp v = image3d_ld1(bottom_blob_3d, ivec3(gx, gy, gz));
 #else
-    const int gi = gz * psc(cstep) + gy * psc(w) + gx;
+    const int gi = gz * psc(gridcstep) + gy * psc(gridw) + gx;
 
     afp v = buffer_ld1(bottom_top_blob_data, gi);
 #endif
+    
+    float v_bound = gz == 1 ? psc(w) : (gz == 2 ? psc(h) : psc(d));
 
-    if(gz == 1)
+    v = align_corner ? (v + 1) / 2.f * (v_bound - 1) : ((v + 1) * v_bound - 1) / 2.f;
+
+    v = floor(v + 0.5);
+
+    if(padding_mode == 2)   // border
     {
-    
+        v = min(v_bound - 1, max(v, 0));
     }
-    else if(gz == 2)
+    else if(padding_mode == 3)   // reflection
     {
-    
-    }
-    else
-    {
-    
+        v = align_corner ? (v_bound - 1) - abs(abs(v) - v_bound + 1) : min(v_bound - 1, max(v_bound - abs(abs(v + 0.5) - v_bound) - 0.5, 0));
     }
 
 #if NCNN_image_shader

@@ -41,7 +41,7 @@ GridSample_vulkan::GridSample_vulkan()
     pipeline_gridsample = 0;
     pipeline_gridsample_pack4 = 0;
     pipeline_gridsample_pack8 = 0;
-    pipeline_gridsample_compute_coord = 0;
+    pipeline_gridsample_compute_offset = 0;
     permute_g = 0;
 }
 
@@ -117,22 +117,28 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
             local_size_xyz.c = std::min(4, grid_shape.c);
         }
 
-        std::vector<vk_specialization_type> specializations(3 + 6);
-        specializations[0].i = sample_type;
-        specializations[1].i = padding_mode;
-        specializations[2].i = align_corner;
-        specializations[3 + 0].i = shape_packed.dims;
-        specializations[3 + 1].i = shape_packed.w;
-        specializations[3 + 2].i = shape_packed.h;
-        specializations[3 + 3].i = shape_packed.d;
-        specializations[3 + 4].i = shape_packed.c;
-        specializations[3 + 5].i = shape_packed.cstep;
+        LayerType::LayerType Layer_compute_offset = sample_type == 1 ? gridsample_bilinear_compute_offset : sample_type == 2 ? gridsample_nearest_compute_offset
+                                                                                                                             : gridsample_bicubic_compute_offset;
 
-        pipeline_gridsample_compute_coord = new Pipeline(vkdev);
-        pipeline_gridsample_compute_coord->set_optimal_local_size_xyz(local_size_xyz);
-        pipeline_gridsample_compute_coord->create(LayerShaderType::gridsample_compute_coord, opt, specializations);
+        std::vector<vk_specialization_type> specializations(2 + 12);
+        specializations[0].i = padding_mode;
+        specializations[1].i = align_corner;
+        specializations[2 + 0].i = shape.dims;
+        specializations[2 + 1].i = shape.w;
+        specializations[2 + 2].i = shape.h;
+        specializations[2 + 3].i = shape.d;
+        specializations[2 + 4].i = shape.c;
+        specializations[2 + 5].i = shape.cstep;
+        specializations[2 + 0].i = grid_shape.dims;
+        specializations[2 + 1].i = grid_shape.w;
+        specializations[2 + 2].i = grid_shape.h;
+        specializations[2 + 3].i = grid_shape.d;
+        specializations[2 + 4].i = grid_shape.c;
+        specializations[2 + 5].i = grid_shape.cstep;
+        pipeline_gridsample_compute_offset = new Pipeline(vkdev);
+        pipeline_gridsample_compute_offset->set_optimal_local_size_xyz(local_size_xyz);
+        pipeline_gridsample_compute_offset->create(Layer_compute_offset, opt, specializations);
     }
-
     std::vector<vk_specialization_type> specializations(3 + 11);
     specializations[0].i = sample_type;
     specializations[1].i = padding_mode;
@@ -202,8 +208,8 @@ int GridSample_vulkan::destroy_pipeline(const Option& opt)
     delete pipeline_gridsample_pack8;
     pipeline_gridsample_pack8 = 0;
     
-    delete pipeline_gridsample_compute_coord;
-    pipeline_gridsample_compute_coord = 0;
+    delete pipeline_gridsample_compute_offset;
+    pipeline_gridsample_compute_offset = 0;
 
     permute_g->destroy_pipeline(opt);
     delete permute_g;
@@ -235,19 +241,44 @@ int GridSample_vulkan::forward(const std::vector<VkMat>& bottom_blobs, std::vect
         permute_rt->forward(bottom_blobs[1], grid, cmd, opt);
     }
 
+    VkMat tmp_compute_blob;
+    if (sample_type == 1)
+    {
+        tmp_compute_blob.create(grid.w, grid.h, grid.c, grid.elemsize, 4, opt.blob_vkallocator);
+    }
+
     //get coord
     {
+        std::vector<VkMat> bindings;
+        if (sample_type == 1)
+        {
+            bindings.resize(2);
+            bindings[0] = grid;
+            bindings[1] = tmp_compute_blob;
+        }
+        else
+        {
+            bindings.resize(1);
+            bindings[0] = grid;
+        }
         std::vector<VkMat> bindings(1);
         bindings[0] = grid;
 
-        std::vector<vk_constant_type> constants(5);
-        constants[0].i = grid.dims;
-        constants[1].i = grid.w;
-        constants[2].i = grid.h * grid.d;
-        constants[3].i = grid.c;
-        constants[4].i = grid.cstep;
+        std::vector<vk_constant_type> constants(12);
+        constants[0].i = bottom_blobs[0].dims;
+        constants[1].i = bottom_blobs[0].w;
+        constants[2].i = bottom_blobs[0].h;
+        constants[3].i = bottom_blobs[0].d;
+        constants[4].i = bottom_blobs[0].c;
+        constants[5].i = bottom_blobs[0].cstep;
+        constants[6].i = grid.dims;
+        constants[7].i = grid.w;
+        constants[8].i = grid.h;
+        constants[9].i = grid.d;
+        constants[10].i = grid.c;
+        constants[11].i = grid.cstep;
 
-        const Pipeline* pipeline = pipeline_gridsample_compute_coord;
+        const Pipeline* pipeline = pipeline_gridsample_compute_offset;
 
         cmd.record_pipeline(pipeline, bindings, constants, grid);
     }
@@ -309,7 +340,7 @@ int GridSample_vulkan::forward(const std::vector<VkImageMat>& bottom_blobs, std:
         constants[3].i = grid.c;
         constants[4].i = 0; //grid_blob cstep
 
-        const Pipeline* pipeline = pipeline_gridsample_compute_coord;
+        const Pipeline* pipeline = pipeline_gridsample_compute_offset;
 
         cmd.record_pipeline(pipeline, bindings, constants, grid);
     }
