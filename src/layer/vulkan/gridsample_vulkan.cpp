@@ -115,8 +115,8 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
             local_size_xyz.c = std::min(4, grid_shape.c);
         }
 
-        LayerType::LayerType Layer_compute_offset = sample_type == 1 ? gridsample_bilinear_compute_offset : sample_type == 2 ? gridsample_nearest_compute_offset
-                                                                                                                             : gridsample_bicubic_compute_offset;
+        LayerShaderType::LayerShaderType Shader_compute_offset = sample_type == 1 ? LayerShaderType::gridsample_bilinear_compute_offset : sample_type == 2 ? LayerShaderType::gridsample_nearest_compute_offset
+                                                                                                                                              : LayerShaderType::gridsample_bicubic_compute_offset;
 
         std::vector<vk_specialization_type> specializations(2 + 12);
         specializations[0].i = padding_mode;
@@ -135,7 +135,7 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
         specializations[2 + 5].i = grid_shape.cstep;
         pipeline_gridsample_compute_offset = new Pipeline(vkdev);
         pipeline_gridsample_compute_offset->set_optimal_local_size_xyz(local_size_xyz);
-        pipeline_gridsample_compute_offset->create(Layer_compute_offset, opt, specializations);
+        pipeline_gridsample_compute_offset->create(Shader_compute_offset, opt, specializations);
     }
     std::vector<vk_specialization_type> specializations(3 + 11);
     specializations[0].i = sample_type;
@@ -242,7 +242,7 @@ int GridSample_vulkan::forward(const std::vector<VkMat>& bottom_blobs, std::vect
     VkMat tmp_compute_blob;
     if (sample_type == 1)
     {
-        tmp_compute_blob.create(grid.w, grid.h, grid.c, grid.elemsize, 4, opt.blob_vkallocator);
+        tmp_compute_blob.create(grid.w, grid.h, 1, grid.elemsize, 4, opt.blob_vkallocator);
     }
 
     //get coord
@@ -278,7 +278,14 @@ int GridSample_vulkan::forward(const std::vector<VkMat>& bottom_blobs, std::vect
 
         const Pipeline* pipeline = pipeline_gridsample_compute_offset;
 
-        cmd.record_pipeline(pipeline, bindings, constants, grid);
+        if (sample_type == 1)
+        {
+            cmd.record_pipeline(pipeline, bindings, constants, tmp_compute_blob);
+        }
+        else
+        {
+            cmd.record_pipeline(pipeline, bindings, constants, grid);
+        }
     }
 
     std::vector<VkMat> bindings(2);
