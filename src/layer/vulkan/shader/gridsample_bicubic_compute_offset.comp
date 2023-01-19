@@ -21,8 +21,8 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_float16: require
 #endif
 
-layout (constant_id = 1) const float padding_mode = 0;
-layout (constant_id = 2) const float align_corner = 0;
+layout (constant_id = 0) const float padding_mode = 0;
+layout (constant_id = 1) const float align_corner = 0;
 
 #define shape_constant_id_offset 2
 layout (constant_id = shape_constant_id_offset + 0) const int dims = 0;
@@ -55,12 +55,12 @@ layout (push_constant) uniform parameter
     int c;
     int cstep;
 
-    int griddims = 0;
-    int gridw = 0;
-    int gridh = 0;
-    int gridd = 0;
-    int gridc = 0;
-    int gridcstep = 0;
+    int griddims;
+    int gridw;
+    int gridh;
+    int gridd;
+    int gridc;
+    int gridcstep;
 } p;
 
 void main()
@@ -80,9 +80,9 @@ void main()
     afp v = buffer_ld1(bottom_top_blob_data, gi);
 #endif
     
-    float v_bound = gz == 1 ? psc(w) : (gz == 2 ? psc(h) : psc(d));
+    sfp v_bound = gz == 1 ? psc(w) : (gz == 2 ? psc(h) : psc(d));
 
-    v = align_corner ? (v + 1) / 2.f * (v_bound - 1) : ((v + 1) * v_bound - 1) / 2.f;
+    v = align_corner == 1 ? (v + 1) / 2.f * (v_bound - 1) : ((v + 1) * v_bound - 1) / 2.f;
 
     v = floor(v);
 
@@ -92,7 +92,7 @@ void main()
     }
     else if(padding_mode == 3)   // reflection
     {
-        v = align_corner ? (v_bound - 1) - abs(abs(v) - v_bound + 1) : min(v_bound - 1, max(v_bound - abs(abs(v + 0.5) - v_bound) - 0.5, 0));
+        v = align_corner == 1 ? (v_bound - 1) - abs(abs(v) - v_bound + 1) : min(v_bound - 1, max(v_bound - abs(abs(v + 0.5) - v_bound) - 0.5, 0));
     }
 
 #if NCNN_image_shader

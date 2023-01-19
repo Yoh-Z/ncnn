@@ -21,8 +21,8 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_float16: require
 #endif
 
-layout (constant_id = 1) const float padding_mode = 0;
-layout (constant_id = 2) const float align_corner = 0;
+layout (constant_id = 0) const sfp padding_mode = 0;
+layout (constant_id = 1) const sfp align_corner = 0;
 
 #define shape_constant_id_offset 2
 layout (constant_id = shape_constant_id_offset + 0) const int dims = 0;
@@ -45,7 +45,7 @@ layout (binding = 1, imfmtc1) writeonly uniform unfp image3D top_blob_3d;
 layout (binding = 2) uniform unfp sampler3D compute_blob;
 #else
 layout (binding = 0) buffer bottom_top_blob { sfp bottom_top_blob_data[]; };
-layout (binding = 1) buffer compute_blob {sfp compute_blob[]; };
+layout (binding = 1) buffer compute_blob {sfpvec8 compute_blob_data[]; };
 #endif
 
 layout (push_constant) uniform parameter
@@ -57,12 +57,12 @@ layout (push_constant) uniform parameter
     int c;
     int cstep;
 
-    int griddims = 0;
-    int gridw = 0;
-    int gridh = 0;
-    int gridd = 0;
-    int gridc = 0;
-    int gridcstep = 0;
+    int griddims;
+    int gridw;
+    int gridh;
+    int gridd;
+    int gridc;
+    int gridcstep;
 } p;
 
 void main()
@@ -86,48 +86,53 @@ void main()
     afp vy = buffer_ld1(bottom_top_blob_data, gi + gz * psc(gridcstep));
     if(psc(dims) == 3) vz = buffer_ld1(bottom_top_blob_data, gi + 2 * gz * psc(gridcstep));
 #endif
-    
-    if(psc(dims) == 3)
+
+    sfp vx_bound = psc(w);
+    sfp vy_bound = psc(h);
+    sfp vz_bound = psc(d);
+
+    vx = align_corner == 1 ? (vx + 1) / 2.f * (vx_bound - 1) : ((vx + 1) * vx_bound - 1) / 2.f;
+    vy = align_corner == 1 ? (vy + 1) / 2.f * (vy_bound - 1) : ((vy + 1) * vy_bound - 1) / 2.f;
+    vz = align_corner == 1 ? (vz + 1) / 2.f * (vz_bound - 1) : ((vz + 1) * vz_bound - 1) / 2.f;
+
+    if(padding_mode == 2)   // border
     {
-        float vx_bound = psc(w);
-        float vy_bound = psc(h);
+        vx = min(vx_bound - 1, max(vx, 0));
+        vy = min(vy_bound - 1, max(vy, 0));
+        vz = min(vz_bound - 1, max(vz, 0));
+    }
+    else if(padding_mode == 3)   // reflection
+    {
+        vx = align_corner == 1 ? (vx_bound - 1) - abs(abs(vx) - vx_bound + 1) : min(vx_bound - 1, max(vx_bound - abs(abs(vx + 0.5) - vx_bound) - 0.5, 0));
+        vy = align_corner == 1 ? (vy_bound - 1) - abs(abs(vy) - vy_bound + 1) : min(vy_bound - 1, max(vy_bound - abs(abs(vy + 0.5) - vy_bound) - 0.5, 0));
+        vz = align_corner == 1 ? (vz_bound - 1) - abs(abs(vz) - vz_bound + 1) : min(vz_bound - 1, max(vz_bound - abs(abs(vz + 0.5) - vz_bound) - 0.5, 0));
+    }
 
-        vx = align_corner ? (vx + 1) / 2.f * (vx_bound - 1) : ((vx + 1) * vx_bound - 1) / 2.f;
-        vy = align_corner ? (vy + 1) / 2.f * (vy_bound - 1) : ((vy + 1) * vy_bound - 1) / 2.f;
+    sfp x_floor = floor(vx);
+    sfp y_floor = floor(vy);
+    sfp z_floor = floor(vz);
 
-        if(padding_mode == 2)   // border
-        {
-            vx = min(vx_bound - 1, max(vx, 0));
-            vy = min(vy_bound - 1, max(vy, 0));
-        }
-        else if(padding_mode == 3)   // reflection
-        {
-            vx = align_corner ? (vx_bound - 1) - abs(abs(vx) - vx_bound + 1) : min(vx_bound - 1, max(vx_bound - abs(abs(vx + 0.5) - vx_bound) - 0.5, 0));
-            vy = align_corner ? (vy_bound - 1) - abs(abs(vy) - vy_bound + 1) : min(vy_bound - 1, max(vy_bound - abs(abs(vy + 0.5) - vy_bound) - 0.5, 0));
-        }
+    sfp w = vx - x_floor;
+    sfp e = 1.0 - w;
+    sfp n = vy - y_floor;
+    sfp s = 1.0 - n;
+    sfp t = vz - z_floor;
+    sfp b = 1.0 - t;
 
-        float x_floor = floor(vx);
-        float y_floor = floor(vy);
+    sfp nw = s * e;
+    sfp ne = s * w;
+    sfp sw = n * e;
+    sfp se = n * w;
 
-        float w = vx - x_floor;
-        float e = 1.0 - w;
-        float n = vy - y_floor;
-        float s = 1 - n;
-
-        afpvec4 v_compute = vec4(s * e, s * w, n * e, n * w);
+    afpvec8 v_compute = outerProduct(vec4(nw, ne, sw, se), vec2(t, b));
 
 #if NCNN_image_shader
-        image3d_st1(top_blob_3d, ivec3(gx, gy, gz), v_compute);
-        image3d_st1(compute_blob, ivec3(gx, gy, gz), vx);
-        image3d_st1(compute_blob, ivec3(gx, gy, gz + 1), vy);
+    image3d_st8(top_blob_3d, ivec3(gx, gy, gz), v_compute);
+    image3d_st1(bottom_top_blob, ivec3(gx, gy, gz), vx);
+    image3d_st1(bottom_top_blob, ivec3(gx, gy, gz + 1), vy);
 #else
-        buffer_st1(bottom_top_blob_data, gi, v_compute);
-        buffer_st1(compute_blob, gi, vx);
-        buffer_st1(compute_blob, gi + gz * psc(gridcstep), vy);
+    compute_blob_data[gi] = v_compute;
+    buffer_st1(bottom_top_blob_data, gi, vx);
+    buffer_st1(bottom_top_blob_data, gi + gz * psc(gridcstep), vy);
 #endif
-    }
-    else if(psc(dims) == 4)
-    {
-        
-    }
 }

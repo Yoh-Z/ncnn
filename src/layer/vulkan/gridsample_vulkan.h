@@ -39,6 +39,11 @@ public:
     Pipeline* pipeline_gridsample_pack8;
 
     Pipeline* pipeline_gridsample_compute_offset;
+
+    //prepare for can't get bottom_blob shape info when sample_type is bilinear.(input is different, so divide into 2 shaders)
+    Pipeline* pipeline_gridsample_bilinear_d4; 
+    Pipeline* pipeline_gridsample_bilinear_d3;
+
     Layer* permute_g;
 };
 
