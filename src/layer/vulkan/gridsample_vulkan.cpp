@@ -119,13 +119,12 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
 
         if (sample_type == 1)
         {
-            Shader_compute_offset = bottom_shapes.empty() ? LayerShaderType::gridsample_bilinear_d3_compute_offset : bottom_shapes[0].dims == 3 ? LayerShaderType::gridsample_bilinear_d3_compute_offset
-                                                                                           : LayerShaderType::gridsample_bilinear_d4_compute_offset;
+            Shader_compute_offset = bottom_shapes.empty() ? LayerShaderType::gridsample_bilinear_d3_compute_offset : bottom_shapes[0].dims == 3 ? LayerShaderType::gridsample_bilinear_d3_compute_offset : LayerShaderType::gridsample_bilinear_d4_compute_offset;
         }
         else
         {
             Shader_compute_offset = sample_type == 2 ? LayerShaderType::gridsample_nearest_compute_offset
-                                                     : LayerShaderType::gridsample_bicubic_compute_offset;
+                                    : LayerShaderType::gridsample_bicubic_compute_offset;
         }
         std::vector<vk_specialization_type> specializations(2 + 12);
         specializations[0].i = padding_mode;
@@ -189,8 +188,7 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
     // pack1
     if (shape.dims == 0 || elempack == 1)
     {
-        LayerShaderType::LayerShaderType gridsample = sample_type == 1 ? LayerShaderType::gridsample_nearest : sample_type == 2 ? LayerShaderType::gridsample_bilinear
-                                                                                                                                : LayerShaderType::gridsample_bicubic;
+        LayerShaderType::LayerShaderType gridsample = sample_type == 1 ? LayerShaderType::gridsample_nearest : sample_type == 2 ? LayerShaderType::gridsample_bilinear : LayerShaderType::gridsample_bicubic;
         pipeline_gridsample = new Pipeline(vkdev);
         pipeline_gridsample->set_optimal_local_size_xyz(local_size_xyz);
         pipeline_gridsample->create(gridsample, opt, specializations);
@@ -199,8 +197,7 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
     // pack4
     if (shape.dims == 0 || elempack == 4)
     {
-        LayerShaderType::LayerShaderType gridsample_pack4 = sample_type == 1 ? LayerShaderType::gridsample_nearest_pack4 : sample_type == 2 ? LayerShaderType::gridsample_bilinear_pack4
-                                                                                                                                      : LayerShaderType::gridsample_bicubic_pack4;
+        LayerShaderType::LayerShaderType gridsample_pack4 = sample_type == 1 ? LayerShaderType::gridsample_nearest_pack4 : sample_type == 2 ? LayerShaderType::gridsample_bilinear_pack4 : LayerShaderType::gridsample_bicubic_pack4;
         pipeline_gridsample_pack4 = new Pipeline(vkdev);
         pipeline_gridsample_pack4->set_optimal_local_size_xyz(local_size_xyz);
         pipeline_gridsample_pack4->create(gridsample_pack4, opt, specializations);
@@ -209,8 +206,7 @@ int GridSample_vulkan::create_pipeline(const Option& opt)
     // pack8
     if ((opt.use_shader_pack8 && shape.dims == 0) || elempack == 8)
     {
-        LayerShaderType::LayerShaderType gridsample_pack8 = sample_type == 1 ? LayerShaderType::gridsample_nearest_pack8 : sample_type == 2 ? LayerShaderType::gridsample_bilinear_pack8
-                                                                                                                                      : LayerShaderType::gridsample_bicubic_pack8;
+        LayerShaderType::LayerShaderType gridsample_pack8 = sample_type == 1 ? LayerShaderType::gridsample_nearest_pack8 : sample_type == 2 ? LayerShaderType::gridsample_bilinear_pack8 : LayerShaderType::gridsample_bicubic_pack8;
         pipeline_gridsample_pack8 = new Pipeline(vkdev);
         pipeline_gridsample_pack8->set_optimal_local_size_xyz(local_size_xyz);
         pipeline_gridsample_pack8->create(gridsample_pack8, opt, specializations);
