@@ -88,7 +88,6 @@ pnnx.Output             output      1 0 out
 REGISTER_GLOBAL_PNNX_NCNN_GRAPH_REWRITER_PASS(torch_le, 20)
 REGISTER_GLOBAL_PNNX_NCNN_GRAPH_REWRITER_PASS(torch_le_1, 21)
 
-
 } // namespace ncnn
 
 } // namespace pnnx
