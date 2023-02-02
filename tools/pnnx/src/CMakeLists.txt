@@ -495,12 +495,18 @@ set(pnnx_pass_ncnn_SRCS
     pass_ncnn/torch_bmm.cpp
     pass_ncnn/torch_clamp.cpp
     pass_ncnn/torch_clone.cpp
+    pass_ncnn/torch_eq.cpp
     pass_ncnn/torch_flatten.cpp
+    pass_ncnn/torch_ge.cpp
+    pass_ncnn/torch_gt.cpp
+    pass_ncnn/torch_le.cpp
     pass_ncnn/torch_logsumexp.cpp
+    pass_ncnn/torch_lt.cpp
     pass_ncnn/torch_matmul.cpp
     pass_ncnn/torch_max.cpp
     pass_ncnn/torch_mean.cpp
     pass_ncnn/torch_min.cpp
+    pass_ncnn/torch_ne.cpp
     pass_ncnn/torch_norm.cpp
     pass_ncnn/torch_permute.cpp
     pass_ncnn/torch_prod.cpp
