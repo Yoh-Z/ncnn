@@ -58,11 +58,11 @@ int CmpOp::forward(const Mat& bottom_blob, Mat& top_blob, const Option& opt) con
     {
         __m256 _q = _mm256_set1_ps(value);
         __m256 _cmp = _mm256_set1_ps(0x1);
-        for (int q = 0 ; q < channels; q ++)
+        for (int q = 0; q < channels; q++)
         {
             const float* ptr = bottom_blob.channel(q);
             float* cmp_ptr = top_blob.channel(q);
-            for (int ii = 0; ii < w * h * d; ii ++)
+            for (int ii = 0; ii < w * h * d; ii++)
             {
                 __m256 _p = _mm256_loadu_ps(ptr);
                 _p = _mm256_cmp_ps(_p, _q, _CMP_GT_OS);
@@ -89,8 +89,6 @@ int CmpOp::forward(const std::vector<Mat>& bottom_blobs, std::vector<Mat>& top_b
     size_t elemsize = bottom_blob.elemsize;
 
     Mat& top_blob = top_blobs[0];
-
-    
 
     return 0;
 }
